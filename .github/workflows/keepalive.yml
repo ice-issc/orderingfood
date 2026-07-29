@@ -1,0 +1,42 @@
+# =====================================================================
+#  Supabase 자동 접속 (Keep-alive)
+#
+#  무료 플랜 프로젝트는 7일간 데이터베이스 접속이 없으면 일시정지됩니다.
+#  이 작업이 3일마다 한 번씩 조회를 보내 정지되지 않게 합니다.
+#  방학이나 긴 연휴에도 신경 쓸 일이 없어집니다.
+#
+#  파일 위치: 저장소 안의  .github/workflows/keepalive.yml
+# =====================================================================
+name: Supabase 깨어있기
+
+on:
+  schedule:
+    # 매월 1, 4, 7, ... 일 03:00 UTC (한국시간 정오)
+    - cron: '0 3 */3 * *'
+  workflow_dispatch:        # 필요할 때 손으로도 실행할 수 있습니다
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Supabase 조회 보내기
+        env:
+          # index.html 에 들어 있는 것과 같은 값입니다. 공개되어도 안전한 키입니다.
+          URL: 'https://xbnytevptiuxurkebiqe.supabase.co'
+          KEY: 'sb_publishable_0GX8fmjg_49dAno-pvZt0A_p5BOiADO'
+        run: |
+          echo "조회 시각: $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M') (KST)"
+
+          CODE=$(curl -s -o /tmp/body.txt -w '%{http_code}' \
+            "$URL/rest/v1/heartbeat?select=note&limit=1" \
+            -H "apikey: $KEY" \
+            -H "Authorization: Bearer $KEY")
+
+          echo "응답 코드: $CODE"
+          echo "응답 내용: $(cat /tmp/body.txt)"
+
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Supabase 응답이 정상이 아닙니다. 프로젝트 상태를 확인하세요."
+            exit 1
+          fi
+          echo "정상입니다. 프로젝트가 깨어 있습니다."

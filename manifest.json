@@ -1,0 +1,22 @@
+{
+  "name": "학생맞춤통합지원센터 주문이요~",
+  "short_name": "학맞통 주문",
+  "description": "인천고 신관동 입주기관과 인근 식당이 함께 쓰는 픽업 주문판",
+  "start_url": "./index.html#/",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#DFE6E1",
+  "theme_color": "#12332C",
+  "lang": "ko",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "식당용 화면", "url": "./index.html#/shop" },
+    { "name": "주문하기",   "url": "./index.html#/order" },
+    { "name": "오늘 현황",   "url": "./index.html#/board" }
+  ]
+}

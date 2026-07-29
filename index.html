@@ -340,7 +340,7 @@ const S = {
   ctx:  ls.get('ctx', { orgId: '', ordererId: '', meal: 'lunch', pickup: '' }),
   me:   null,                                  // {role, restaurantId, label}
   shop: null,                                  // 식당 계정일 때 {id, name}
-  restId: '',
+  restId: '', adminDate: '',
   chan: null, timer: null
 };
 const MEAL = { lunch: '점심', dinner: '저녁' };
@@ -678,7 +678,10 @@ async function paintBoard() {
 
     <h2 class="col-hd">전표 목록 <span class="cnt">${data.length}</span></h2>
     <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(310px,1fr))">
-      ${data.length ? data.map(o => ticket(o)).join('')
+      ${data.length ? data.map(o => ticket(o, {
+          actions: S.me?.role === 'admin'
+            ? `<button class="btn sm ghost" data-act="delOrder" data-v="${o.id}">기록 삭제</button>` : ''
+        })).join('')
         : `<div class="empty">오늘 들어온 주문이 없습니다.</div>`}
     </div>`;
 }
@@ -766,7 +769,7 @@ async function setStatus(id, st) {
 }
 
 /* ═══════════ 관리 ═══════════ */
-let adminTab = 'orgs';
+let adminTab = 'orders';
 async function viewAdmin() {
   if (S.me?.role !== 'admin') {
     app.innerHTML = `<h1 class="page">관리자만 볼 수 있습니다</h1>
@@ -778,8 +781,47 @@ async function viewAdmin() {
 }
 
 async function paintAdmin() {
-  const tabs = [['orgs', '기관'], ['orderers', '주문자'], ['rests', '식당'], ['menu', '메뉴']];
+  const tabs = [['orders', '주문 기록'], ['orgs', '기관'], ['orderers', '주문자'],
+                ['rests', '식당'], ['menu', '메뉴']];
   let body = '';
+
+  if (adminTab === 'orders') {
+    const d = S.adminDate || kstToday();
+    S.adminDate = d;
+    const from = new Date(d + 'T00:00:00+09:00').toISOString();
+    const to   = new Date(new Date(d + 'T00:00:00+09:00').getTime() + 864e5).toISOString();
+    const { data: os, error } = await sb.from('orders')
+      .select('*, orgs(name), restaurants(name)')
+      .gte('created_at', from).lt('created_at', to)
+      .order('created_at', { ascending: false });
+    if (error) fail(error);
+    const rows = os || [];
+    const sum = rows.filter(o => o.status !== '취소').reduce((a, o) => a + o.total, 0);
+    body = `
+      <div class="card" style="margin-bottom:16px">
+        <div class="row">
+          <div><label class="f" for="oDate">날짜</label>
+            <input class="input mono" id="oDate" type="date" value="${d}" data-ch="adate"></div>
+          <div style="flex:1;min-width:180px;align-self:flex-end;padding-bottom:2px">
+            <span class="note">주문 <b class="mono">${rows.length}</b>건 · 합계 <b class="mono">${won(sum)}원</b></span>
+          </div>
+          <button class="btn sm warn" style="align-self:flex-end" data-act="delDay">이 날짜 주문 모두 삭제</button>
+        </div>
+        <p class="note" style="margin:12px 0 0">삭제하면 담긴 메뉴 내역까지 영구히 지워집니다. 되돌릴 수 없으니 시험 삼아 넣은 주문을 정리할 때만 쓰세요.</p>
+      </div>
+      <div class="card scroller"><table class="tbl">
+        <thead><tr><th>번호</th><th>시각</th><th>기관 · 주문자</th><th>식당</th><th>상태</th><th style="text-align:right">금액</th><th></th></tr></thead>
+        <tbody>${rows.length ? rows.map(o => `<tr>
+          <td class="mono">${esc(o.order_no || '-')}</td>
+          <td class="mono">${hhmm(o.created_at)}</td>
+          <td>${esc(o.orgs?.name || '')}<div class="note">${esc(o.orderer_name)}</div></td>
+          <td>${esc(o.restaurants?.name || '')}</td>
+          <td><span class="tag s-${o.status}">${o.status}</span></td>
+          <td class="mono" style="text-align:right">${won(o.total)}원</td>
+          <td style="text-align:right"><button class="btn sm ghost" data-act="delOrder" data-v="${o.id}">삭제</button></td>
+        </tr>`).join('') : `<tr><td colspan="7" class="note">이 날짜에는 주문이 없습니다.</td></tr>`}
+        </tbody></table></div>`;
+  }
 
   if (adminTab === 'orgs') {
     body = `
@@ -914,6 +956,25 @@ document.addEventListener('click', async ev => {
 
       case 'tab': adminTab = v; paintAdmin(); break;
 
+      case 'delOrder': {
+        if (!confirm('이 주문 기록을 지울까요? 되돌릴 수 없습니다.')) return;
+        const { error } = await sb.from('orders').delete().eq('id', v);
+        if (error) return fail(error);
+        toast('삭제했습니다');
+        if (adminTab === 'orders' && S.me?.role === 'admin') paintAdmin(); else paintBoard();
+        break;
+      }
+      case 'delDay': {
+        const d = S.adminDate || kstToday();
+        if (!confirm(d + ' 의 주문을 모두 지웁니다. 되돌릴 수 없습니다. 계속할까요?')) return;
+        const from = new Date(d + 'T00:00:00+09:00').toISOString();
+        const to   = new Date(new Date(d + 'T00:00:00+09:00').getTime() + 864e5).toISOString();
+        const { error } = await sb.from('orders').delete()
+          .gte('created_at', from).lt('created_at', to);
+        if (error) return fail(error);
+        toast('해당 날짜 주문을 모두 삭제했습니다');
+        paintAdmin(); break;
+      }
       case 'addOrg': {
         const nm = $('#nOrg').value.trim(); if (!nm) return toast('기관명을 넣어주세요');
         await sb.from('orgs').insert({ name: nm, sort: S.orgs.length + 1 });
@@ -980,6 +1041,7 @@ document.addEventListener('change', async ev => {
   if (c === 'pick') { S.ctx.pickup = t.value; ls.set('ctx', S.ctx); renderCartbar(); }
   if (c === 'memo') { S.memo = t.value; }
   if (c === 'menurest') { S.restId = t.value; await loadMenu(); paintAdmin(); }
+  if (c === 'adate') { S.adminDate = t.value; paintAdmin(); }
 });
 
 document.addEventListener('input', ev => {
@@ -1010,7 +1072,7 @@ window.addEventListener('hashchange', route);
 /* ═══════════ 로그인 ═══════════ */
 function viewLogin() {
   app.innerHTML = `
-    <h1 class="page">로그인</h1>
+    <h1 class="page">누구세요?</h1>
     <p class="lede">받으신 계정으로 한 번만 로그인하면, 이 기기에서는 다음부터 바로 열립니다.</p>
     <div class="card" style="max-width:420px">
       <label class="f" for="lWho">계정</label>

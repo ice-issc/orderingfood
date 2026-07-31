@@ -56,7 +56,8 @@ a{color:var(--ink)}
 }
 .topbar-in{max-width:1120px;margin:0 auto;display:flex;align-items:center;gap:12px}
 .brand{font-family:var(--disp);font-weight:800;font-size:19px;letter-spacing:-.02em;
-  text-decoration:none;color:#EAF1ED;white-space:nowrap}
+  text-decoration:none;color:#EAF1ED;white-space:nowrap;
+  min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
 .brand-hi{color:var(--lunch)}
 .brand-short{display:none}
 @media (max-width:620px){
@@ -64,7 +65,13 @@ a{color:var(--ink)}
   .brand-short{display:inline}
   .brand{font-size:17px}
 }
-.topbar nav{margin-left:auto;display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+.topbar nav{margin-left:auto;display:flex;gap:2px;overflow-x:auto;
+  scrollbar-width:none;min-width:0;flex:0 1 auto}
+.btn-out{flex:0 0 auto;background:transparent;border:1.5px solid #4E675E;color:#EAF1ED;
+  font-size:13px;font-weight:700;padding:6px 13px;border-radius:999px;cursor:pointer;
+  white-space:nowrap;margin-left:6px}
+.btn-out:hover{background:rgba(255,255,255,.14)}
+@media (max-width:620px){ .btn-out{font-size:12px;padding:5px 10px;margin-left:4px} }
 .topbar nav::-webkit-scrollbar{display:none}
 .topbar nav a{
   color:#B9CCC3;text-decoration:none;font-size:14px;font-weight:600;
@@ -238,6 +245,7 @@ hr.sep{border:none;border-top:1px solid var(--line);margin:22px 0}
       <span class="brand-hi">주문이요~</span>
     </a>
     <nav id="nav"></nav>
+    <button class="btn-out" id="out" data-act="signout" hidden>나가기</button>
   </div>
 </header>
 
@@ -392,8 +400,12 @@ function navRender() {
   else if (r === 'center') links = [['#/order', '주문하기'], ['#/board', '오늘 현황']];
   else if (r === 'admin')  links = [['#/order', '주문하기'], ['#/board', '오늘 현황'], ['#/admin', '관리']];
   $('#nav').innerHTML = links.map(([u, t]) =>
-    `<a href="${u}" ${h.startsWith(u) ? 'aria-current="page"' : ''}>${t}</a>`).join('')
-    + (S.me ? `<a href="#" data-act="signout">${esc(S.me.label)} · 나가기</a>` : '');
+    `<a href="${u}" ${h.startsWith(u) ? 'aria-current="page"' : ''}>${t}</a>`).join('');
+  const out = $('#out');
+  if (out) {
+    out.hidden = !S.me;
+    if (S.me) out.textContent = S.me.label + ' 나가기';
+  }
 }
 
 function cleanup() {
@@ -417,7 +429,7 @@ function viewHome() {
         <p>기관·주문자·식당·메뉴를 등록하고 고칩니다.</p></a>` : ''}
     </div>
     <hr class="sep">
-    <p class="note">※ 개인정보(학생 이름·연락처 등)는 메모란을 포함해 어디에도 입력하지 마세요. 기관명과 주문자 표시명만 사용합니다.</p>`;
+    <p class="note"></p>`;
 }
 
 /* ═══════════ 주문하기 ═══════════ */
@@ -728,6 +740,7 @@ async function paintShop(first = false) {
       <div class="row">
         <button class="btn sm ghost" data-act="testsound">알림음 확인</button>
         <button class="btn sm ghost" data-act="toggleopen">${rest.is_open ? '오늘 주문 그만 받기' : '다시 주문 받기'}</button>
+        <button class="btn sm ghost" data-act="signout">로그아웃</button>
       </div>
     </div>
     <p class="lede">오늘 <b class="mono">${data.length}</b>건 · 합계 <b class="mono">${won(money)}원</b>
@@ -944,8 +957,8 @@ document.addEventListener('click', async ev => {
       case 'signin':  await signIn(); break;
       case 'signout':
         ev.preventDefault();
-        await sb.auth.signOut(); S.me = null; S.shop = null;
-        cleanup(); location.hash = '#/'; route(); break;
+        if (!confirm('로그아웃할까요? 다시 들어올 때 비밀번호를 넣어야 합니다.')) return;
+        await forceSignOut(); break;
       case 'testsound': beep(2); if ('Notification' in window) Notification.requestPermission?.(); break;
       case 'st':        await setStatus(v, t.dataset.s); break;
       case 'toggleopen': {
@@ -1051,6 +1064,10 @@ document.addEventListener('input', ev => {
 /* ═══════════ 라우팅 ═══════════ */
 async function route() {
   cleanup(); navRender();
+  if ((location.hash || '').startsWith('#/logout')) {   // 비상용 강제 로그아웃 주소
+    if (S.me) { await forceSignOut(); return; }
+    location.hash = '#/';
+  }
   if (!S.me) return viewLogin();
   const h = (location.hash || '#/').split('?')[0];
   try {
@@ -1070,9 +1087,23 @@ async function route() {
 window.addEventListener('hashchange', route);
 
 /* ═══════════ 로그인 ═══════════ */
+/* 통신이 끊겨 서버 응답이 없어도 이 기기에서는 반드시 로그아웃되게 합니다 */
+async function forceSignOut() {
+  try { await sb.auth.signOut({ scope: 'local' }); } catch (e) { console.warn(e); }
+  try { await sb.auth.signOut(); } catch (e) { console.warn(e); }
+  try {
+    Object.keys(localStorage).filter(k => k.startsWith('sb-'))
+      .forEach(k => localStorage.removeItem(k));
+  } catch {}
+  S.me = null; S.shop = null;
+  cleanup();
+  if (location.hash !== '#/') location.hash = '#/'; else route();
+  toast('로그아웃했습니다');
+}
+
 function viewLogin() {
   app.innerHTML = `
-    <h1 class="page">로그인</h1>
+    <h1 class="page">누구세요?</h1>
     <p class="lede">받으신 계정으로 한 번만 로그인하면, 이 기기에서는 다음부터 바로 열립니다.</p>
     <div class="card" style="max-width:420px">
       <label class="f" for="lWho">계정</label>
